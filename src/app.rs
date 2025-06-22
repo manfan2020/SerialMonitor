@@ -1,4 +1,4 @@
-use crate::data::{ConnectionConfig, InputSlot, PlotConfig, PlotData, SerialMonitorData};
+use crate::data::{ConnectionConfig, InputSlot, PlotConfig, PlotData, SerialMonitorData, TriggerConfig};
 use crate::serial_parser::SerialParser;
 use crate::serial_reader::{SerialConfig, SerialError, SerialReader, StartMode};
 use crate::ui::{Notification, NotificationType, SerialMonitorUI};
@@ -191,6 +191,14 @@ impl SerialMonitorApp {
 
     pub fn plot_config(&self) -> &PlotConfig {
         &self.data.plot_config
+    }
+
+    pub fn trigger_config_mut(&mut self) -> &mut TriggerConfig {
+        &mut self.data.trigger_config
+    }
+
+    pub fn trigger_config(&self) -> &TriggerConfig {
+        &self.data.trigger_config
     }
 
     pub fn input_slots_mut(&mut self) -> &mut Vec<InputSlot> {

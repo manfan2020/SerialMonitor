@@ -1,5 +1,5 @@
 use crate::app::SerialMonitorApp;
-use crate::data::{InputSlot, PlotConfig, PlotData, PlotMode, PlotScaleMode};
+use crate::data::{self, InputSlot, PlotConfig, PlotData, PlotMode, PlotScaleMode};
 use crate::serial_reader::{FlowCtrl, Parity, StartMode};
 use eframe::egui;
 use egui::emath::Numeric;
@@ -31,7 +31,7 @@ const START_MODES: &[StartMode] = &[
     StartMode::Delay(Duration::ZERO),
     StartMode::Message(String::new()),
 ];
-const PLOT_MODES: &[PlotMode] = &[PlotMode::Continous, PlotMode::Cyclic];
+const PLOT_MODES: &[PlotMode] = &[PlotMode::Continous, PlotMode::Cyclic, PlotMode::SingleShot];
 const SCALE_MODES: &[PlotScaleMode] = &[PlotScaleMode::Auto, PlotScaleMode::AutoMax, PlotScaleMode::Manual];
 
 const INFO_COLOR: Color32 = Color32::from_rgb(118, 184, 31);
@@ -120,6 +120,7 @@ impl SerialMonitorUI {
             .show(ctx, |ui| {
                 self.conn_panel(ctx, ui, app);
                 self.plot_panel(ctx, ui, app);
+                self.trigger_panel(ctx, ui, app);
                 self.input_panel(ctx, ui, app);
             });
     }
@@ -214,6 +215,31 @@ impl SerialMonitorUI {
         });
     }
 
+    fn trigger_panel(&mut self, ctx: &egui::Context, ui: &mut Ui, app: &mut SerialMonitorApp) {
+        if app.plot_config().mode != PlotMode::SingleShot {
+            return;
+        }
+
+        ui.add_space(5.0);
+        let frame = egui::Frame::window(&ctx.style())
+            .rounding(2.0);
+        frame.show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.heading("Trigger Settings");
+                ui.add_space(ui.available_width());
+            });
+            ui.separator();
+
+            let names: Vec<String> = app.input_slots().iter()
+                .map(|n| n.name.clone())
+                .collect();
+            let config = app.trigger_config_mut();
+            drag_value(ui, "Window (s)", &mut config.window, -3.5, 0.0..=SerialMonitorApp::STORED_DURATION, 2, "s");
+            drag_value(ui, "Tolerance", &mut config.tolerance, 3.5, 0.0..=f64::MAX, 3, "");
+            option_index_dropdown(ui, "Input Slot", &names, &mut config.input_slot, 3.5);
+        });
+    }
+
     fn input_panel(&mut self, ctx: &egui::Context, ui: &mut Ui, app: &mut SerialMonitorApp) {
         ui.add_space(5.0);
         let frame = egui::Frame::window(&ctx.style())
@@ -298,6 +324,11 @@ impl SerialMonitorUI {
                 ui.add_space(ui.available_width());
             });
             ui.separator();
+
+            let single_shot_range = match app.plot_config().mode {
+                PlotMode::SingleShot => data::detect_single_shot(&app.raw_values(), app.trigger_config()),
+                _ => None
+            };
             
             egui::ScrollArea::vertical().show(ui, |ui| {
                 let frame = egui::Frame::none()
@@ -314,7 +345,7 @@ impl SerialMonitorUI {
                         .show_inside(ui, |ui| {
                             let (resp, hidden) = match app.plots()[i].console {
                                 true => (self.console(ctx, ui, &app.plots()[i], app.console_lines()), None),
-                                false => self.plot(ctx, ui, app.plot_config(), &app.plots()[i], app.input_slots(), app.raw_values(), app.zoom_enabled())
+                                false => self.plot(ctx, ui, app.plot_config(), single_shot_range, &app.plots()[i], app.input_slots(), app.raw_values(), app.zoom_enabled())
                             };
                             match resp {
                                 PlotResponse::Reset => {
@@ -360,7 +391,7 @@ impl SerialMonitorUI {
         }
     }
 
-    fn plot(&mut self, ctx: &egui::Context, ui: &mut Ui, config: &PlotConfig, plot: &PlotData, input_slots: &Vec<InputSlot>, input_values: &Vec<Vec<[f64; 2]>>, zoom_enabled: bool) -> (PlotResponse, Option<Vec<usize>>) {
+    fn plot(&mut self, ctx: &egui::Context, ui: &mut Ui, config: &PlotConfig, single_shot_range: Option<(f64, f64)>, plot: &PlotData, input_slots: &Vec<InputSlot>, input_values: &Vec<Vec<[f64; 2]>>, zoom_enabled: bool) -> (PlotResponse, Option<Vec<usize>>) {
         ui.add_space(PLOT_MARGIN);
     
         let result = self.plot_header(ui, plot);
@@ -419,6 +450,16 @@ impl SerialMonitorUI {
                                 .filter(|n| n[0] >= start && n[0] < split)
                                 .map(|n| [n[0] + config.window, n[1]]));
                             v
+                        },
+                        PlotMode::SingleShot => {
+                            if let Some((start, end)) = single_shot_range {
+                                values.iter()
+                                    .filter(|n| n[0] >= start && n[0] <= end)
+                                    .map(|n| [n[0] - start, n[1]])
+                                    .collect::<Vec<[f64; 2]>>()
+                            } else {
+                                Vec::new()
+                            }
                         }
                     };
 
@@ -545,6 +586,21 @@ fn option_dropdown<T: PartialEq + Clone + Display>(ui: &mut egui::Ui, label: &'s
             .show_ui(ui, |ui| {
                 for option in options {
                     ui.selectable_value(value, option.clone(), option.to_string());
+                }
+            });
+    });
+}
+
+fn option_index_dropdown(ui: &mut egui::Ui, label: &'static str, options: &[String], value: &mut usize, spacing: f32) {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        ui.add_space(spacing);
+        egui::ComboBox::new(label, "")
+            .selected_text(if *value < options.iter().count() { options[*value].to_string() } else { "-".to_string() })
+            .width(DROPDOWN_WIDTH)
+            .show_ui(ui, |ui| {
+                for i in options.iter().enumerate() {
+                    ui.selectable_value(value, i.0, i.1.to_string());                    
                 }
             });
     });

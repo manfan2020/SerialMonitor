@@ -1,5 +1,5 @@
 # Serial Monitor
-A Rust 1.77.1 application for reading and displaying serial data from devices like Arduino.
+A Rust 1.87.0 application for reading and displaying serial data from devices like Arduino.
 Configurations can be passed via the command line to quickly connect and prepare the application for a specific device.
 
 ![Application Overview](docs/application.png)

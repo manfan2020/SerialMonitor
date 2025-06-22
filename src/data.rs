@@ -64,7 +64,8 @@ impl ConnectionConfig {
 #[derive(PartialEq, Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum PlotMode {
     Continous,
-    Cyclic
+    Cyclic,
+    SingleShot
 }
 
 impl Display for PlotMode {
@@ -103,6 +104,23 @@ impl Default for PlotConfig {
             scale_mode: PlotScaleMode::Auto,
             y_min: 0.0,
             y_max: 1.0
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TriggerConfig {
+    pub window: f64,
+    pub tolerance: f64,
+    pub input_slot: usize,
+}
+
+impl Default for TriggerConfig {
+    fn default() -> Self {
+        Self { 
+            window: 0.05,
+            tolerance: 0.1,
+            input_slot: 0
         }
     }
 }
@@ -159,6 +177,7 @@ impl PlotData {
 pub struct SerialMonitorData {
     pub conn_config: ConnectionConfig,
     pub plot_config: PlotConfig,
+    pub trigger_config: TriggerConfig,
     pub inp_slots: Vec<InputSlot>,
     pub plots: Vec<PlotData>
 }
@@ -178,4 +197,55 @@ impl SerialMonitorData {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         Ok(config)
     }
+}
+
+pub fn detect_single_shot(values: &Vec<Vec<[f64; 2]>>, trigger_config: &TriggerConfig) -> Option<(f64, f64)> {
+    let window = trigger_config.window;
+    let tolerance = trigger_config.tolerance;
+    let input_slot = trigger_config.input_slot;
+
+    if input_slot >= values.len() || values[input_slot].len() < 2 {
+        return None;        
+    }
+
+    let values = &values[input_slot];
+
+    let first_time = values.first().unwrap()[0];
+    let baseline_slice: Vec<_> = values.iter()
+        .filter(|n| n[0] - first_time <= window)
+        .map(|n| n[1])
+        .collect();
+
+    if baseline_slice.is_empty() {
+        return None;
+    }
+
+    let baseline: f64 = baseline_slice.iter().sum::<f64>() / baseline_slice.len() as f64;
+
+    let mut event_start: Option<f64> = None;
+    let mut last_event: Option<(f64, f64)> = None;
+    let mut stable_buffer: Vec<[f64; 2]> = Vec::new();
+
+    for window_start in 0..values.len() {
+        let point = values[window_start];
+        let deviation = (point[1] - baseline).abs();
+
+        if deviation > tolerance {
+            if event_start.is_none() {
+                event_start = Some(point[0]);
+            }
+            stable_buffer.clear();
+        } else if let Some(start_time) = event_start {
+            stable_buffer.push(point);
+
+            let time_span = stable_buffer.last().unwrap()[0] - stable_buffer.first().unwrap()[0];
+            if time_span >= window {
+                last_event = Some((start_time - window, stable_buffer.last().unwrap()[0]));
+                event_start = None;
+                stable_buffer.clear();
+            }
+        }
+    }
+
+    last_event
 }

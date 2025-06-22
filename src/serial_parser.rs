@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum ParseError {
     ColumnMismatch(usize, usize)
 }

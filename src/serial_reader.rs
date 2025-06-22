@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum SerialError {
     UnsupportedDataBits(u8),
     UnsupportedStopBits(u8),
